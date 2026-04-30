@@ -5,7 +5,9 @@ description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "langfuse>=4.5,<5",
     "litellm==1.83.14",
+    "logfire[fastapi,httpx]>=4,<5",
     "pgvector>=0.3",
     "prisma==0.11.0",
     "pydantic>=2.5",

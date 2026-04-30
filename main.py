@@ -2,6 +2,25 @@ import os
 import asyncio
 import time
 from typing import List, Optional
+
+# --- Observability bootstrap ---
+# Must run before any FastAPI/Prisma import so instrument_httpx() patches the
+# httpx client class before Prisma constructs its engine client. The Prisma
+# Python client speaks to its Rust query-engine sidecar over local HTTP via
+# httpx.AsyncClient, so instrument_httpx covers DB roundtrips. The same
+# instrumentor also captures the outbound litellm.aembedding HTTP call to the
+# proxy and injects a W3C traceparent header for cross-service stitching.
+import logfire
+
+logfire.configure(
+    service_name="m2-litellm-pgvector",
+    environment=os.getenv("OTEL_ENVIRONMENT_NAME", "local-dev"),
+    distributed_tracing=True,
+)
+logfire.instrument_httpx()
+# --- end observability bootstrap ---
+
+from langfuse import observe
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +50,9 @@ app = FastAPI(
     description="OpenAI-compatible Vector Stores API using PGVector",
     version="1.0.0"
 )
+
+# Emit one server span per request, excluding the noisy health probe.
+logfire.instrument_fastapi(app, excluded_urls="/health")
 
 # CORS middleware
 app.add_middleware(
@@ -219,6 +241,7 @@ async def list_vector_stores(
 
 @app.post("/v1/vector_stores/{vector_store_id}/search", response_model=VectorStoreSearchResponse)
 @app.post("/vector_stores/{vector_store_id}/search", response_model=VectorStoreSearchResponse)
+@observe(as_type="retriever", name="pgvector.search")
 async def search_vector_store(
     vector_store_id: str,
     request: VectorStoreSearchRequest,

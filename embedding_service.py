@@ -1,6 +1,7 @@
 from typing import List, Optional
 from config import settings, EmbeddingConfig
 from litellm.types.utils import EmbeddingResponse
+from langfuse import observe
 import litellm
 import logging
 
@@ -12,13 +13,14 @@ class EmbeddingService:
 
 
     
+    @observe(as_type="embedding", name="pgvector.generate_embedding")
     async def generate_embedding(self, text: str) -> List[float]:
         """
         Generate embedding for a single text using LiteLLM proxy
-        
+
         Args:
             text: Text to embed
-            
+
         Returns:
             List of floats representing the embedding vector
         """
@@ -46,13 +48,14 @@ class EmbeddingService:
         except Exception as e:
             raise RuntimeError(f"Failed to generate embedding: {str(e)}")
     
+    @observe(as_type="embedding", name="pgvector.generate_embeddings_batch")
     async def generate_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
         Generate embeddings for multiple texts
-        
+
         Args:
             texts: List of texts to embed
-            
+
         Returns:
             List of embedding vectors
         """

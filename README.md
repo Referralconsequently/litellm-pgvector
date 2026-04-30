@@ -89,6 +89,45 @@ curl -X POST \
   }'
 ```
 
+## Observability
+
+This service emits OpenTelemetry traces via Logfire and Langfuse-shaped span
+attributes. When deployed alongside the m2-litellm-gateway proxy, traces stitch
+end-to-end through the W3C `traceparent` header: a single trace covers the
+proxy's incoming request, the proxy's call into pgvector, pgvector's
+`retriever` span (the `<=>` cosine search), pgvector's outbound HTTP call back
+to the proxy for embedding generation, and the proxy's `embeddings` span.
+
+Reuse the proxy's Logfire write-token and Langfuse keys so both services land
+in the same project — separate tokens would split the trace tree across
+projects with no benefit.
+
+### Required environment variables
+
+| Variable | Purpose |
+|---|---|
+| `LOGFIRE_TOKEN` | Logfire write-token. Use the same value the parent proxy uses so spans land in the same project (no separate Logfire project needed). |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse project public key. Reuse the proxy's value. |
+| `LANGFUSE_SECRET_KEY` | Langfuse project secret key. Reuse the proxy's value. |
+| `LANGFUSE_HOST` | Langfuse ingestion host (e.g. `https://us.cloud.langfuse.com`). Reuse the proxy's value. |
+| `OTEL_SERVICE_NAME` | Service identity in trace UIs. Defaults to `m2-litellm-pgvector` from `logfire.configure(service_name=...)`; set this only if you need to override. |
+| `OTEL_ENVIRONMENT_NAME` | Environment label (`local-dev`, `staging`, `prod`). Read by `logfire.configure(environment=...)` at startup. |
+
+### Notes
+
+- `distributed_tracing=True` is hard-set in code so the service silently
+  extracts the incoming `traceparent` header from the proxy.
+- Health probes (`GET /health`) are excluded from FastAPI span generation to
+  keep traces clean.
+- The Prisma Python client speaks to its Rust query-engine sidecar over local
+  HTTP via `httpx.AsyncClient`. `logfire.instrument_httpx()` therefore captures
+  DB roundtrip latency and status (but not SQL text — the engine speaks
+  GraphQL-over-HTTP, and the upstream `prisma-client-py` has no native OTel
+  hook).
+- The outbound `litellm.aembedding(...)` call is also covered by the same
+  `instrument_httpx()`, which injects a `traceparent` header automatically so
+  the proxy's embedding span links back to this service's `retriever` span.
+
 ## Configuration
 
 ### Environment Variables
