@@ -1,0 +1,15 @@
+[project]
+name = "litellm-pgvector"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "litellm==1.83.14",
+    "pgvector>=0.3",
+    "prisma==0.11.0",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.5.2",
+    "python-dotenv>=1.0.1,<2.0.0",
+    "uvicorn[standard]>=0.31",
+]
