@@ -1,7 +1,6 @@
 import os
-import asyncio
 import time
-from typing import List, Optional
+from datetime import UTC, datetime
 
 # --- Observability bootstrap ---
 # Must run before any FastAPI/Prisma import so instrument_httpx() patches the
@@ -20,28 +19,27 @@ logfire.configure(
 logfire.instrument_httpx()
 # --- end observability bootstrap ---
 
-from langfuse import observe
-from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.middleware.cors import CORSMiddleware
-from prisma import Prisma
+from config import settings
 from dotenv import load_dotenv
-
+from embedding_service import embedding_service
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from langfuse import observe
 from models import (
+    ContentChunk,
+    EmbeddingBatchCreateRequest,
+    EmbeddingBatchCreateResponse,
+    EmbeddingCreateRequest,
+    EmbeddingResponse,
+    SearchResult,
     VectorStoreCreateRequest,
+    VectorStoreListResponse,
     VectorStoreResponse,
     VectorStoreSearchRequest,
     VectorStoreSearchResponse,
-    SearchResult,
-    EmbeddingCreateRequest,
-    EmbeddingResponse,
-    EmbeddingBatchCreateRequest,
-    EmbeddingBatchCreateResponse,
-    VectorStoreListResponse,
-    ContentChunk
 )
-from config import settings
-from embedding_service import embedding_service
+from prisma import Prisma
 
 load_dotenv()
 
@@ -69,6 +67,20 @@ db = Prisma()
 security = HTTPBearer()
 
 
+def to_epoch_seconds(value):
+    """Normalize raw Prisma timestamp values for OpenAI-compatible responses."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return int(parsed.timestamp())
+    return int(value.timestamp())
+
+
 async def get_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Validate API key from Authorization header"""
     expected_key = settings.server_api_key
@@ -89,7 +101,7 @@ async def shutdown():
     await db.disconnect()
 
 
-async def generate_query_embedding(query: str) -> List[float]:
+async def generate_query_embedding(query: str) -> list[float]:
     """
     Generate an embedding for the query using LiteLLM
     """
@@ -130,8 +142,8 @@ async def create_vector_store(
         
         # Convert to response format
         created_at = int(vector_store["created_at_timestamp"])
-        expires_at = int(vector_store["expires_at"].timestamp()) if vector_store.get("expires_at") else None
-        last_active_at = int(vector_store["last_active_at"].timestamp()) if vector_store.get("last_active_at") else None
+        expires_at = to_epoch_seconds(vector_store.get("expires_at"))
+        last_active_at = to_epoch_seconds(vector_store.get("last_active_at"))
         
         return VectorStoreResponse(
             id=vector_store["id"],
@@ -152,9 +164,9 @@ async def create_vector_store(
 
 @app.get("/v1/vector_stores", response_model=VectorStoreListResponse)
 async def list_vector_stores(
-    limit: Optional[int] = 20,
-    after: Optional[str] = None,
-    before: Optional[str] = None,
+    limit: int | None = 20,
+    after: str | None = None,
+    before: str | None = None,
     api_key: str = Depends(get_api_key)
 ):
     """
@@ -205,8 +217,8 @@ async def list_vector_stores(
         vector_stores = []
         for row in results:
             created_at = int(row["created_at_timestamp"])
-            expires_at = int(row["expires_at"].timestamp()) if row.get("expires_at") else None
-            last_active_at = int(row["last_active_at"].timestamp()) if row.get("last_active_at") else None
+            expires_at = to_epoch_seconds(row.get("expires_at"))
+            last_active_at = to_epoch_seconds(row.get("last_active_at"))
             
             vector_store = VectorStoreResponse(
                 id=row["id"],
