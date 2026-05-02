@@ -8,7 +8,6 @@ A FastAPI application that provides OpenAI-compatible vector store endpoints usi
 - 🗄️ PGVector for efficient vector storage and similarity search
 - 🎛️ Configurable database field mappings
 - 🔄 LiteLLM proxy integration for any embedding model
-- 🐳 Docker support
 - ⚡ FastAPI with async support
 
 ## API Endpoints
@@ -182,20 +181,23 @@ The application uses LiteLLM proxy for embeddings. Configure it with:
 
 ## Setup and Installation
 
+Run these commands from the repository root. The sidecar is a uv workspace
+member at `services/litellm-pgvector`.
+
 ### 1. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+uv sync --package litellm-pgvector
 ```
 
 ### 2. Database Setup
 
 ```bash
 # Generate Prisma client
-prisma generate
+uv run --package litellm-pgvector prisma generate --schema services/litellm-pgvector/prisma/schema.prisma
 
 # Run database migrations
-prisma db push
+uv run --package litellm-pgvector prisma db push --schema services/litellm-pgvector/prisma/schema.prisma
 ```
 
 ### 3. Set up LiteLLM Proxy
@@ -204,31 +206,13 @@ Start LiteLLM proxy pointing to your preferred embedding model:
 
 ```bash
 # Example: Start LiteLLM proxy for OpenAI
-litellm --model text-embedding-ada-002 --port 4000
+uv run litellm --model text-embedding-ada-002 --port 4000
 ```
 
 ### 4. Run the Application
 
 ```bash
-python main.py
-```
-
-Or using uvicorn directly:
-
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-## Docker Deployment
-
-### Build and run with Docker:
-
-```bash
-# Build the image
-docker build -t vector-store-api .
-
-# Run the container
-docker run -p 8000:8000 --env-file .env vector-store-api
+uv run --package litellm-pgvector uvicorn main:app --app-dir services/litellm-pgvector --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## Database Schema
