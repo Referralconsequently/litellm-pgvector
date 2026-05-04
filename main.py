@@ -7,8 +7,9 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Final, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Final, NoReturn, Protocol, cast
 
 import langfuse
 import logfire
@@ -32,11 +33,10 @@ from models import (
     VectorStoreSearchRequest,
     VectorStoreSearchResponse,
 )
-from prisma import Prisma
 
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Callable
 
 
 Row = dict[str, Any]
@@ -61,6 +61,20 @@ class SafeEmbeddingFields:
     embedding_field: str
     metadata_field: str
     created_at_field: str
+
+
+class PrismaClient(Protocol):
+    async def connect(self) -> None: ...
+
+    async def disconnect(self) -> None: ...
+
+    async def query_raw(self, query: str, *params: object) -> list[Row]: ...
+
+
+def prisma_client_factory() -> Callable[[], PrismaClient]:
+    """Load the generated Prisma client without making static checks depend on it."""
+    prisma_module = import_module("prisma")
+    return cast("Callable[[], PrismaClient]", prisma_module.__dict__["Prisma"])
 
 
 def configure_observability() -> None:
@@ -260,7 +274,7 @@ def embedding_response_from_row(row: Row, *, fields: SafeEmbeddingFields) -> Emb
 load_dotenv()
 configure_observability()
 
-db = Prisma()
+db = prisma_client_factory()()
 security = HTTPBearer()
 
 
