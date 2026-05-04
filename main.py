@@ -4,11 +4,13 @@ import logging
 import os
 import re
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from textwrap import dedent
-from typing import Any, Final, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Final, NoReturn, cast
 
+import langfuse
 import logfire
 import uvicorn
 from config import settings
@@ -17,7 +19,6 @@ from embedding_service import embedding_service
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from langfuse import observe
 from models import (
     ContentChunk,
     EmbeddingBatchCreateRequest,
@@ -34,7 +35,12 @@ from models import (
 from prisma import Prisma
 
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+
 Row = dict[str, Any]
+_observe = cast("Any", langfuse.observe)
 
 _log = logging.getLogger(__name__)
 _SQL_IDENTIFIER_RE: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -107,6 +113,12 @@ def row_required(
     if not rows:
         raise_http_exception(status_code=status_code, detail=detail)
     return rows[0]
+
+
+def row_metadata(value: Any) -> Row:
+    if isinstance(value, dict):
+        return cast("Row", value)
+    return {}
 
 
 def vector_store_table_name() -> str:
@@ -191,7 +203,9 @@ def to_epoch_seconds(value: Any) -> int | None:
 
     timestamp = getattr(value, "timestamp", None)
     if callable(timestamp):
-        return int(timestamp())
+        timestamp_value = timestamp()
+        if isinstance(timestamp_value, (int, float, str)):
+            return int(timestamp_value)
 
     raise TypeError(f"Cannot convert {type(value).__name__} to epoch seconds")
 
@@ -219,9 +233,10 @@ def search_result_from_row(
 ) -> SearchResult:
     distance = float(row["distance"])
     similarity_score = max(0.0, 1.0 - (distance / 2.0))
-    raw_metadata = row[fields.metadata_field] or {}
-    metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
-    filename = metadata.get("filename", "document.txt")
+    metadata = row_metadata(row[fields.metadata_field])
+    filename = metadata.get("filename")
+    if not isinstance(filename, str) or not filename:
+        filename = "document.txt"
 
     return SearchResult(
         file_id=row[fields.id_field],
@@ -245,10 +260,25 @@ def embedding_response_from_row(row: Row, *, fields: SafeEmbeddingFields) -> Emb
 load_dotenv()
 configure_observability()
 
+db = Prisma()
+security = HTTPBearer()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+    """Connect and disconnect Prisma with the FastAPI application lifecycle."""
+    await db.connect()
+    try:
+        yield
+    finally:
+        await db.disconnect()
+
+
 app = FastAPI(
     title="OpenAI Vector Stores API",
     description="OpenAI-compatible Vector Stores API using PGVector",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Emit one server span per request, excluding the noisy health probe.
@@ -262,9 +292,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-db = Prisma()
-security = HTTPBearer()
-
 
 async def get_api_key(
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -274,18 +301,6 @@ async def get_api_key(
     if credentials.credentials != expected_key:
         raise_http_exception(status_code=401, detail="Invalid API key")
     return credentials.credentials
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    """Connect to database on startup."""
-    await db.connect()
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    """Disconnect from database on shutdown."""
-    await db.disconnect()
 
 
 async def generate_query_embedding(query: str) -> list[float]:
@@ -331,17 +346,14 @@ async def create_vector_store(
             """,
             vector_store_table=vector_store_table,
         )
-        result = cast(
-            "list[Row]",
-            await db.query_raw(
-                query,
-                request.name,
-                default_file_counts(),
-                "completed",
-                0,
-                request.expires_after,
-                request.metadata or {},
-            ),
+        result = await db.query_raw(
+            query,
+            request.name,
+            default_file_counts(),
+            "completed",
+            0,
+            request.expires_after,
+            request.metadata or {},
         )
         vector_store = row_required(
             result,
@@ -414,7 +426,7 @@ async def list_vector_stores(
         params.append(page_size + 1)
         final_query = base_query + " ORDER BY created_at DESC LIMIT $" + str(param_count)
 
-        results = cast("list[Row]", await db.query_raw(final_query, *params))
+        results = await db.query_raw(final_query, *params)
         has_more = len(results) > page_size
         if has_more:
             results = results[:page_size]
@@ -450,7 +462,7 @@ async def list_vector_stores(
     response_model=VectorStoreSearchResponse,
     dependencies=[Depends(get_api_key)],
 )
-@observe(as_type="retriever", name="pgvector.search")
+@_observe(as_type="retriever", name="pgvector.search")
 async def search_vector_store(
     vector_store_id: str,
     request: VectorStoreSearchRequest,
@@ -462,10 +474,7 @@ async def search_vector_store(
             "SELECT id FROM {{vector_store_table}} WHERE id = $1",
             vector_store_table=vector_store_table,
         )
-        vector_store_result = cast(
-            "list[Row]",
-            await db.query_raw(vector_store_query, vector_store_id),
-        )
+        vector_store_result = await db.query_raw(vector_store_query, vector_store_id)
         if not vector_store_result:
             raise_http_exception(status_code=404, detail="Vector store not found")
 
@@ -515,7 +524,7 @@ async def search_vector_store(
 
         query_params.append(page_size)
         final_query = base_query + " ORDER BY distance ASC LIMIT $" + str(param_count)
-        results = cast("list[Row]", await db.query_raw(final_query, *query_params))
+        results = await db.query_raw(final_query, *query_params)
 
         search_results = [
             search_result_from_row(
@@ -557,10 +566,7 @@ async def create_embedding(
             "SELECT id FROM {{vector_store_table}} WHERE id = $1",
             vector_store_table=vector_store_table,
         )
-        vector_store_result = cast(
-            "list[Row]",
-            await db.query_raw(vector_store_query, vector_store_id),
-        )
+        vector_store_result = await db.query_raw(vector_store_query, vector_store_id)
         if not vector_store_result:
             raise_http_exception(status_code=404, detail="Vector store not found")
 
@@ -595,15 +601,12 @@ async def create_embedding(
             metadata_field=fields.metadata_field,
             created_at_field=fields.created_at_field,
         )
-        result = cast(
-            "list[Row]",
-            await db.query_raw(
-                insert_query,
-                vector_store_id,
-                request.content,
-                embedding_vector_str,
-                request.metadata or {},
-            ),
+        result = await db.query_raw(
+            insert_query,
+            vector_store_id,
+            request.content,
+            embedding_vector_str,
+            request.metadata or {},
         )
         embedding = row_required(
             result,
@@ -665,10 +668,7 @@ async def create_embeddings_batch(
             "SELECT id FROM {{vector_store_table}} WHERE id = $1",
             vector_store_table=vector_store_table,
         )
-        vector_store_result = cast(
-            "list[Row]",
-            await db.query_raw(vector_store_query, vector_store_id),
-        )
+        vector_store_result = await db.query_raw(vector_store_query, vector_store_id)
         if not vector_store_result:
             raise_http_exception(status_code=404, detail="Vector store not found")
 
@@ -723,7 +723,7 @@ async def create_embeddings_batch(
             created_at_field=fields.created_at_field,
         ).replace("{{values_clause}}", values_clause)
 
-        result = cast("list[Row]", await db.query_raw(insert_query, *params))
+        result = await db.query_raw(insert_query, *params)
         if not result:
             raise_http_exception(status_code=500, detail="Failed to create embeddings")
 
