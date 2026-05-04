@@ -38,12 +38,13 @@ def _extract_response_data(response: EmbeddingResponse) -> list[Any]:
     data = getattr(response, "data", None)
     if not isinstance(data, list):
         raise TypeError("LiteLLM embedding response did not contain a data list")
-    return data
+    return cast("list[Any]", data)
 
 
 def _extract_raw_embedding_from_item(item: Any) -> Any:
     if isinstance(item, dict):
-        return item.get("embedding")
+        response_item = cast("dict[str, Any]", item)
+        return response_item.get("embedding")
     return getattr(item, "embedding", None)
 
 
@@ -54,7 +55,8 @@ def _coerce_float_embedding(value: Any, *, label: str) -> list[float]:
         )
 
     embedding: list[float] = []
-    for index, item in enumerate(value):
+    raw_embedding = cast("list[Any]", value)
+    for index, item in enumerate(raw_embedding):
         if isinstance(item, bool) or not isinstance(item, int | float):
             raise TypeError(
                 f"Embedding value at {label}[{index}] must be numeric, got {type(item).__name__}"
@@ -109,14 +111,11 @@ class EmbeddingService:
     async def generate_embedding(self, text: str) -> list[float]:
         """Generate a single embedding for text."""
         try:
-            response = cast(
-                "EmbeddingResponse",
-                await aembedding(
-                    model=self.config.model,
-                    input=[text],
-                    api_base=self.config.base_url,
-                    api_key=self.config.api_key,
-                ),
+            response = await aembedding(
+                model=self.config.model,
+                input=[text],
+                api_base=self.config.base_url,
+                api_key=self.config.api_key,
             )
         except Exception as exc:
             raise RuntimeError("Failed to generate embedding") from exc
@@ -144,14 +143,11 @@ class EmbeddingService:
             return []
 
         try:
-            response = cast(
-                "EmbeddingResponse",
-                await aembedding(
-                    model=self.config.model,
-                    input=texts,
-                    api_base=self.config.base_url,
-                    api_key=self.config.api_key,
-                ),
+            response = await aembedding(
+                model=self.config.model,
+                input=texts,
+                api_base=self.config.base_url,
+                api_key=self.config.api_key,
             )
         except Exception as exc:
             raise RuntimeError("Failed to generate embeddings") from exc
