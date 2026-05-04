@@ -1,14 +1,14 @@
-from typing import Optional, Dict, Any, List
+from typing import Any
+
 from pydantic import BaseModel
-from datetime import datetime
 
 
 class VectorStoreCreateRequest(BaseModel):
     name: str
-    file_ids: Optional[List[str]] = None
-    expires_after: Optional[Dict[str, Any]] = None
-    chunking_strategy: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    file_ids: list[str] | None = None
+    expires_after: dict[str, Any] | None = None
+    chunking_strategy: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class VectorStoreResponse(BaseModel):
@@ -17,19 +17,19 @@ class VectorStoreResponse(BaseModel):
     created_at: int
     name: str
     usage_bytes: int
-    file_counts: Dict[str, int]
+    file_counts: dict[str, int]
     status: str
-    expires_after: Optional[Dict[str, Any]] = None
-    expires_at: Optional[int] = None
-    last_active_at: Optional[int] = None
-    metadata: Optional[Dict[str, Any]] = None
+    expires_after: dict[str, Any] | None = None
+    expires_at: int | None = None
+    last_active_at: int | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class VectorStoreSearchRequest(BaseModel):
     query: str
-    limit: Optional[int] = 20
-    filters: Optional[Dict[str, Any]] = None
-    return_metadata: Optional[bool] = True
+    limit: int | None = 20
+    filters: dict[str, Any] | None = None
+    return_metadata: bool | None = True
 
 
 class ContentChunk(BaseModel):
@@ -41,22 +41,22 @@ class SearchResult(BaseModel):
     file_id: str
     filename: str
     score: float
-    attributes: Optional[Dict[str, Any]] = None
-    content: List[ContentChunk]
+    attributes: dict[str, Any] | None = None
+    content: list[ContentChunk]
 
 
 class VectorStoreSearchResponse(BaseModel):
     object: str = "vector_store.search_results.page"
     search_query: str
-    data: List[SearchResult]
+    data: list[SearchResult]
     has_more: bool = False
-    next_page: Optional[str] = None
+    next_page: str | None = None
 
 
 class EmbeddingCreateRequest(BaseModel):
     content: str
-    embedding: List[float]
-    metadata: Optional[Dict[str, Any]] = None
+    embedding: list[float]
+    metadata: dict[str, Any] | None = None
 
 
 class EmbeddingResponse(BaseModel):
@@ -64,23 +64,23 @@ class EmbeddingResponse(BaseModel):
     object: str = "embedding"
     vector_store_id: str
     content: str
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
     created_at: int
 
 
 class EmbeddingBatchCreateRequest(BaseModel):
-    embeddings: List[EmbeddingCreateRequest]
+    embeddings: list[EmbeddingCreateRequest]
 
 
 class EmbeddingBatchCreateResponse(BaseModel):
     object: str = "embedding.batch"
-    data: List[EmbeddingResponse]
+    data: list[EmbeddingResponse]
     created: int
 
 
 class VectorStoreListResponse(BaseModel):
     object: str = "list"
-    data: List[VectorStoreResponse]
-    first_id: Optional[str] = None
-    last_id: Optional[str] = None
+    data: list[VectorStoreResponse]
+    first_id: str | None = None
+    last_id: str | None = None
     has_more: bool = False
