@@ -521,7 +521,7 @@ async def search_vector_store(
             search_result_from_row(
                 row,
                 fields=fields,
-                return_metadata=request.return_metadata,
+                return_metadata=request.return_metadata or False,
             )
             for row in results
         ]
