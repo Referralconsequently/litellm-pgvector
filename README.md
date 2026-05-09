@@ -108,7 +108,9 @@ projects with no benefit.
 | `LOGFIRE_TOKEN` | Logfire write-token. Use the same value the parent proxy uses so spans land in the same project (no separate Logfire project needed). |
 | `LANGFUSE_PUBLIC_KEY` | Langfuse project public key. Reuse the proxy's value. |
 | `LANGFUSE_SECRET_KEY` | Langfuse project secret key. Reuse the proxy's value. |
-| `LANGFUSE_HOST` | Langfuse ingestion host (e.g. `https://us.cloud.langfuse.com`). Reuse the proxy's value. |
+| `LANGFUSE_OTEL_HOST` | Canonical gateway/Keychain Langfuse host (e.g. `https://us.cloud.langfuse.com` for US projects, or the same value with `/api/public/otel` appended). The parent wrapper maps this to the sidecar's `LANGFUSE_BASE_URL` and deprecated `LANGFUSE_HOST` names before startup. |
+| `LANGFUSE_BASE_URL` | Langfuse SDK base URL used by the sidecar. Normally derived from `LANGFUSE_OTEL_HOST`; set directly only for an intentional sidecar override. |
+| `LANGFUSE_HOST` | Deprecated Langfuse SDK host name. Normally derived from `LANGFUSE_OTEL_HOST` for compatibility with older SDK paths. |
 | `OTEL_SERVICE_NAME` | Service identity in trace UIs. Defaults to `m2-litellm-pgvector` from `logfire.configure(service_name=...)`; set this only if you need to override. |
 | `OTEL_ENVIRONMENT_NAME` | Environment label (`local-dev`, `staging`, `prod`). Read by `logfire.configure(environment=...)` at startup. |
 
@@ -126,6 +128,12 @@ projects with no benefit.
 - The outbound `litellm.aembedding(...)` call is also covered by the same
   `instrument_httpx()`, which injects a `traceparent` header automatically so
   the proxy's embedding span links back to this service's `retriever` span.
+- Langfuse Python SDK v4 derives its default OTLP span exporter auth from
+  `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. Keep `LANGFUSE_OTEL_HOST`
+  region-correct; US projects use `https://us.cloud.langfuse.com`, while EU
+  projects use `https://cloud.langfuse.com`. Direct raw OTLP integrations must
+  use the `/api/public/otel` endpoint with Basic auth built from the same key
+  pair and the `x-langfuse-ingestion-version=4` header.
 
 ## Configuration
 
