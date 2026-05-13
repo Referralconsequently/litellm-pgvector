@@ -90,27 +90,20 @@ curl -X POST \
 
 ## Observability
 
-This service emits OpenTelemetry traces via Logfire and Langfuse-shaped span
-attributes. When deployed alongside the m2-litellm-gateway proxy, traces stitch
-end-to-end through the W3C `traceparent` header: a single trace covers the
-proxy's incoming request, the proxy's call into pgvector, pgvector's
-`retriever` span (the `<=>` cosine search), pgvector's outbound HTTP call back
-to the proxy for embedding generation, and the proxy's `embeddings` span.
+This service emits OpenTelemetry traces via Logfire. When deployed alongside
+the m2-litellm-gateway proxy, traces stitch end-to-end through the W3C
+`traceparent` header: a single trace covers the proxy's incoming request, the
+proxy's call into pgvector, the pgvector search, pgvector's outbound HTTP call
+back to the proxy for embedding generation, and the proxy's embedding span.
 
-Reuse the proxy's Logfire write-token and Langfuse keys so both services land
-in the same project — separate tokens would split the trace tree across
-projects with no benefit.
+Reuse the proxy's Logfire write-token so both services land in the same project
+with one trace tree.
 
 ### Required environment variables
 
 | Variable | Purpose |
 |---|---|
 | `LOGFIRE_TOKEN` | Logfire write-token. Use the same value the parent proxy uses so spans land in the same project (no separate Logfire project needed). |
-| `LANGFUSE_PUBLIC_KEY` | Langfuse project public key. Reuse the proxy's value. |
-| `LANGFUSE_SECRET_KEY` | Langfuse project secret key. Reuse the proxy's value. |
-| `LANGFUSE_OTEL_HOST` | Canonical gateway/Keychain Langfuse host (e.g. `https://us.cloud.langfuse.com` for US projects, or the same value with `/api/public/otel` appended). The parent wrapper maps this to the sidecar's `LANGFUSE_BASE_URL` and deprecated `LANGFUSE_HOST` names before startup. |
-| `LANGFUSE_BASE_URL` | Langfuse SDK base URL used by the sidecar. Normally derived from `LANGFUSE_OTEL_HOST`; set directly only for an intentional sidecar override. |
-| `LANGFUSE_HOST` | Deprecated Langfuse SDK host name. Normally derived from `LANGFUSE_OTEL_HOST` for compatibility with older SDK paths. |
 | `OTEL_SERVICE_NAME` | Service identity in trace UIs. Defaults to `m2-litellm-pgvector` from `logfire.configure(service_name=...)`; set this only if you need to override. |
 | `OTEL_ENVIRONMENT_NAME` | Environment label (`local-dev`, `staging`, `prod`). Read by `logfire.configure(environment=...)` at startup. |
 
@@ -127,13 +120,7 @@ projects with no benefit.
   hook).
 - The outbound `litellm.aembedding(...)` call is also covered by the same
   `instrument_httpx()`, which injects a `traceparent` header automatically so
-  the proxy's embedding span links back to this service's `retriever` span.
-- Langfuse Python SDK v4 derives its default OTLP span exporter auth from
-  `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`. Keep `LANGFUSE_OTEL_HOST`
-  region-correct; US projects use `https://us.cloud.langfuse.com`, while EU
-  projects use `https://cloud.langfuse.com`. Direct raw OTLP integrations must
-  use the `/api/public/otel` endpoint with Basic auth built from the same key
-  pair and the `x-langfuse-ingestion-version=4` header.
+  the proxy's embedding span links back to this service's search span.
 
 ## Configuration
 

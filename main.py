@@ -11,7 +11,6 @@ from importlib import import_module
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Final, NoReturn, Protocol, cast
 
-import langfuse
 import logfire
 import uvicorn
 from config import settings
@@ -40,7 +39,6 @@ if TYPE_CHECKING:
 
 
 Row = dict[str, Any]
-_observe = cast("Any", langfuse.observe)
 
 _log = logging.getLogger(__name__)
 _SQL_IDENTIFIER_RE: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -476,7 +474,6 @@ async def list_vector_stores(
     response_model=VectorStoreSearchResponse,
     dependencies=[Depends(get_api_key)],
 )
-@_observe(as_type="retriever", name="pgvector.search")
 async def search_vector_store(
     vector_store_id: str,
     request: VectorStoreSearchRequest,

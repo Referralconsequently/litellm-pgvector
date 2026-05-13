@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from config import EmbeddingConfig, settings
-from langfuse import observe
 from litellm import aembedding
 
 
@@ -107,7 +106,6 @@ class EmbeddingService:
     def __init__(self, config: EmbeddingConfig | None = None) -> None:
         self.config = config or settings.embedding
 
-    @observe(as_type="embedding", name="pgvector.generate_embedding")
     async def generate_embedding(self, text: str) -> list[float]:
         """Generate a single embedding for text."""
         try:
@@ -136,7 +134,6 @@ class EmbeddingService:
             )
             return embedding
 
-    @observe(as_type="embedding", name="pgvector.generate_embeddings_batch")
     async def generate_embeddings_batch(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts."""
         if not texts:
